@@ -1,0 +1,7 @@
+
+
+tutorial:
+  room-sensor-service.url: http://localhost:8442
+  room-service.url: http://localhost:8441
+
+server.port: 8443

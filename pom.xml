@@ -28,6 +28,7 @@
     </dependencies>
 
     <modules>
+        <module>common</module>
         <module>sensors</module>
         <module>rooms</module>
         <module>room-sensors</module>

@@ -1,0 +1,4 @@
+
+server.port: 8442
+
+tutorial.evaluation.url: http://localhost:8443/data
