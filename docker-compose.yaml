@@ -1,0 +1,25 @@
+version: '3.1'
+services:
+  rooms:
+    image: kafka-tutorial/rooms:latest
+    ports:
+      - "8441:8441"
+  sensors:
+    image: kafka-tutorial/sensors:latest
+    ports:
+      - "8440:8440"
+    environment:
+      TUTORIAL_ROOMSENSORS_URL: http://room-sensors:8442
+  room-sensors:
+    image: kafka-tutorial/room-sensors:latest
+    ports:
+      - "8442:8442"
+    environment:
+      TUTORIAL_EVALUATION_URL: http://evaluation:8443
+  evaluation:
+    image: kafka-tutorial/evaluation:latest
+    ports:
+      - "8443:8443"
+    environment:
+      TUTORIAL_ROOMSENSORS_URL: http://room-sensors:8442
+      TUTORIAL_ROOM_SERVICE_URL: http://rooms:8441

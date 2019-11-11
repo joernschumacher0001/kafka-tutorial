@@ -15,6 +15,7 @@ public class SensorDataService {
     private String targetUrl;
 
     public void dataReceived(String sensorId, double value) {
+        String url = String.format("%s/sensorData", targetUrl);
 
         SensorData data = SensorData.builder()
                 .sensorId(sensorId)
@@ -22,6 +23,6 @@ public class SensorDataService {
                 .value(value)
                 .build();
 
-        restTemplate.put(targetUrl, data);
+        restTemplate.put(url, data);
     }
 }

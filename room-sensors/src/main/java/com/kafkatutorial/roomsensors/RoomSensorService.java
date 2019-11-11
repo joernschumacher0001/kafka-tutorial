@@ -16,16 +16,17 @@ public class RoomSensorService {
     @Value("${tutorial.evaluation.url}")
     private String evaluationUrl;
 
-    public void assignSensor(String roomId, String sensorId) {
-        sensorsInRoom.values().stream().forEach(s -> s.remove(sensorId));
+    void assignSensor(String roomId, String sensorId) {
+        sensorsInRoom.values().forEach(s -> s.remove(sensorId));
         sensorsInRoom.computeIfAbsent(roomId, id -> new HashSet<>()).add(sensorId);
     }
 
-    public void addSensorData(SensorData sensorData) {
-        restTemplate.put(evaluationUrl, sensorData);
+    void addSensorData(SensorData sensorData) {
+        String url = String.format("%s/data", evaluationUrl);
+        restTemplate.put(url, sensorData);
     }
 
-    public String getRoomForSensor(String sensorId) {
+    String getRoomForSensor(String sensorId) {
         return sensorsInRoom.entrySet().stream()
                 .filter(e -> e.getValue().contains(sensorId))
                 .findFirst()

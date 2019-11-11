@@ -1,4 +1,4 @@
 
-tutorial.roomsensors.url: http://localhost:8442/sensorData
+tutorial.roomsensors.url: http://localhost:8442
 
 server.port: 8440
