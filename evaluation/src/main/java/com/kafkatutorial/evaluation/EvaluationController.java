@@ -1,6 +1,5 @@
 package com.kafkatutorial.evaluation;
 
-import com.kafkatutorial.SensorData;
 import org.springframework.web.bind.annotation.*;
 
 @RestController("/")
@@ -9,11 +8,6 @@ public class EvaluationController {
 
     public EvaluationController(EvaluationService service) {
         this.service = service;
-    }
-
-    @PutMapping("/data")
-    void addSensorData(@RequestBody SensorData data) {
-        service.addSensorData(data);
     }
 
     @GetMapping(value = "/average", params = "roomId")

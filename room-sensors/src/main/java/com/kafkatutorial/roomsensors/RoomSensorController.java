@@ -24,6 +24,6 @@ public class RoomSensorController {
 
     @GetMapping(value = "roomForSensor", params = "sensorId")
     String getRoomForSensor(@RequestParam("sensorId") String sensorId) {
-        return roomSensorService.getRoomForSensor(sensorId);
+        return roomSensorService.getRoomForSensor(sensorId).orElse("unknown");
     }
 }
