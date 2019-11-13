@@ -26,6 +26,6 @@ public class RoomSensorService {
     }
 
     void assignSensor(String roomId, String sensorId) {
-        kafkaProducer.send(new ProducerRecord<>(sensorAssignmentTopic, roomId, sensorId));
+        kafkaProducer.send(new ProducerRecord<>(sensorAssignmentTopic, sensorId, roomId));
     }
 }

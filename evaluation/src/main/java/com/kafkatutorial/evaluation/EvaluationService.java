@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class EvaluationService {
+class EvaluationService {
 
     @Value("${kafka.topics.sensorData}")
     private String sensorDataTopic;
@@ -30,8 +30,8 @@ public class EvaluationService {
                      createAndAssignConsumer(StringDeserializer.class, sensorRoomAssignmentTopic)) {
             ConsumerRecords<String, String> poll = assignmentReader.poll(Duration.ofSeconds(5));
             poll.forEach(cr -> {
-                if (cr.key().equals(roomId)) {
-                    sensors.add(cr.value());
+                if (cr.value().equals(roomId)) {
+                    sensors.add(cr.key());
                 }
             });
         }
