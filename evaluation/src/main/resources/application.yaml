@@ -1,7 +1,7 @@
 
-
-tutorial:
-  room-sensor-service.url: http://localhost:8442
-  sensor-service.url: http://localhost:8440
-
 server.port: 8443
+
+kafka:
+  topics:
+    sensorData: sensorData
+    sensorRoomAssignment: sensorRoomAssignment

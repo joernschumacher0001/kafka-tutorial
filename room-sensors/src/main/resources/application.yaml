@@ -1,2 +1,6 @@
 
 server.port: 8442
+
+kafka:
+  topics:
+    sensorRoomAssignment: sensorRoomAssignment

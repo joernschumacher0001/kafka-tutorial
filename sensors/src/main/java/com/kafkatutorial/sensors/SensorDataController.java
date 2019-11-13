@@ -17,9 +17,4 @@ public class SensorDataController {
     void valueMeasured(@PathVariable("id") String id, @RequestParam("value") double value) {
         service.dataReceived(id, value);
     }
-
-    @GetMapping(path="sensors/{id}/values")
-    List<SensorData> getSensorData(@PathVariable("id") String sensorId) {
-        return service.getDataForSensor(sensorId);
-    }
 }

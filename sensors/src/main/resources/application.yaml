@@ -1,2 +1,4 @@
 
 server.port: 8440
+
+kafka.topic.sensordata: sensorData
