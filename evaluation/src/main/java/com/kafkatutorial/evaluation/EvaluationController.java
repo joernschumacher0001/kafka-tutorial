@@ -11,13 +11,8 @@ public class EvaluationController {
         this.service = service;
     }
 
-    @PutMapping("/data")
-    void addSensorData(@RequestBody SensorData data) {
-        service.addSensorData(data);
-    }
-
-    @GetMapping(value = "/average", params = "roomId")
-    double getRoomAverage(@RequestParam("roomId") String roomId) {
+    @GetMapping(value = "rooms/{roomId}/average")
+    double getRoomAverage(@PathVariable("roomId") String roomId) {
         return service.getRoomAverage(roomId);
     }
 }

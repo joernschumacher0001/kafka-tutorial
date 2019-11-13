@@ -1,27 +1,28 @@
 package com.kafkatutorial.sensors;
 
 import com.kafkatutorial.SensorData;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.*;
 
 @Service
 public class SensorDataService {
     RestTemplate restTemplate = new RestTemplate();
 
-    @Value("${tutorial.roomsensors.url}")
-    private String targetUrl;
+    private final Map<String, List<SensorData>> data = new HashMap<>();
 
-    public void dataReceived(String sensorId, double value) {
-
+    void dataReceived(String sensorId, double value) {
         SensorData data = SensorData.builder()
                 .sensorId(sensorId)
                 .timestamp(LocalDateTime.now())
-                .value(value)
-                .build();
+                .value(value).build();
+        this.data.computeIfAbsent(sensorId, s -> new ArrayList<>())
+                .add(data);
+    }
 
-        restTemplate.put(targetUrl, data);
+    List<SensorData> getDataForSensor(String sensorId) {
+        return data.getOrDefault(sensorId, Collections.emptyList());
     }
 }

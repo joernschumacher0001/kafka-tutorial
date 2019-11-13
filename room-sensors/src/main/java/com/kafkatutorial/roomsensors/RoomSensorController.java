@@ -1,7 +1,8 @@
 package com.kafkatutorial.roomsensors;
 
-import com.kafkatutorial.SensorData;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController("/")
 public class RoomSensorController {
@@ -12,18 +13,13 @@ public class RoomSensorController {
         this.roomSensorService = roomSensorService;
     }
 
-    @PutMapping(value = "sensors", params = {"roomId", "sensorId"})
-    void assignSensorToRoom(@RequestParam("roomId") String roomId, @RequestParam("sensorId") String sensorId) {
+    @PutMapping(value = "rooms/{roomId}/sensors/{sensorId}")
+    void assignSensorToRoom(@PathVariable("roomId") String roomId, @PathVariable("sensorId") String sensorId) {
         roomSensorService.assignSensor(roomId, sensorId);
     }
 
-    @PutMapping(value = "sensorData")
-    void putSensorData(@RequestBody SensorData sensorData) {
-        roomSensorService.addSensorData(sensorData);
-    }
-
-    @GetMapping(value = "roomForSensor", params = "sensorId")
-    String getRoomForSensor(@RequestParam("sensorId") String sensorId) {
-        return roomSensorService.getRoomForSensor(sensorId);
+    @GetMapping(value = "rooms/{roomId}/sensors")
+    List<String> getSensorsForRoom(@PathVariable("roomId") String roomId) {
+        return roomSensorService.getSensorsForRoom(roomId);
     }
 }

@@ -1,9 +1,9 @@
 package com.kafkatutorial.sensors;
 
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import com.kafkatutorial.SensorData;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController("/")
 public class SensorDataController {
@@ -13,8 +13,13 @@ public class SensorDataController {
         service = srv;
     }
 
-    @PutMapping(path="values", params = {"id", "value"})
-    void valueMeasured(@RequestParam("id") String id, @RequestParam("value") double value) {
+    @PutMapping(path="sensors/{id}/values", params = {"value"})
+    void valueMeasured(@PathVariable("id") String id, @RequestParam("value") double value) {
         service.dataReceived(id, value);
+    }
+
+    @GetMapping(path="sensors/{id}/values")
+    List<SensorData> getSensorData(@PathVariable("id") String sensorId) {
+        return service.getDataForSensor(sensorId);
     }
 }
