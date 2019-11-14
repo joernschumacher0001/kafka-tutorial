@@ -1,18 +1,26 @@
 package com.kafkatutorial.evaluation;
 
 import com.kafkatutorial.SensorData;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.utils.Bytes;
+import org.apache.kafka.streams.*;
+import org.apache.kafka.streams.errors.InvalidStateStoreException;
+import org.apache.kafka.streams.kstream.*;
+import org.apache.kafka.streams.state.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -24,64 +32,113 @@ class EvaluationService {
     @Value("${kafka.topics.sensorRoomAssignment}")
     private String sensorRoomAssignmentTopic;
 
+    @Value("${kafka.windowsize}")
+    private int windowSize;
+
+    private ReadOnlyWindowStore<String, Double> averageByRoom;
+    private KafkaStreams kafkaStreams;
+    private Serde<SensorData> jsonSerde;
+
+    EvaluationService() {
+        JsonDeserializer<SensorData> deserializer = new JsonDeserializer<>();
+        deserializer.addTrustedPackages("com.kafkatutorial");
+        jsonSerde = Serdes.serdeFrom(new JsonSerializer<>(), deserializer);
+    }
+
     double getRoomAverage(String roomId) {
-        Collection<String> sensors = new ArrayList<>();
-        try (Consumer<String, String> assignmentReader =
-                     createAndAssignConsumer(StringDeserializer.class, sensorRoomAssignmentTopic)) {
-            ConsumerRecords<String, String> poll = assignmentReader.poll(Duration.ofSeconds(5));
-            poll.forEach(cr -> {
-                if (cr.value().equals(roomId)) {
-                    sensors.add(cr.key());
+        double result = 0.0;
+        if (averageByRoom != null) {
+            Instant windowStart = Instant.now().minus(2*windowSize, ChronoUnit.MINUTES);
+            try (WindowStoreIterator<Double> fetch = averageByRoom.fetch(roomId, windowStart, Instant.now())) {
+                while (fetch.hasNext()) {
+                    result = fetch.next().value;
                 }
-            });
+            }
         }
-
-        log.info("Querying data for sensors {}", sensors);
-        return getSensorData(sensors).stream()
-                .mapToDouble(SensorData::getValue)
-                .average()
-                .orElse(0.0);
+        return result;
     }
 
-    private List<SensorData> getSensorData(Collection<String> sensorIds) {
-        List<SensorData> data = new ArrayList<>();
+    @PostConstruct
+    void createStream() {
+        TimeWindows timeWindow = TimeWindows.of(Duration.ofMinutes(windowSize));
 
-        try (Consumer<String, SensorData> sensorDataConsumer =
-                     createAndAssignConsumer(JsonDeserializer.class, sensorDataTopic)) {
-            ConsumerRecords<String, SensorData> records = sensorDataConsumer.poll(Duration.ofSeconds(10));
-            records.forEach(cr -> {
-                if (sensorIds.contains(cr.key())) {
-                    data.add(cr.value());
+        StreamsBuilder streamsBuilder = new StreamsBuilder();
+
+        // sensorid to roomid
+        KTable<String, String> sensorRoomTable = streamsBuilder.table(sensorRoomAssignmentTopic);
+
+        KStream<String, SensorData> valueStream =
+                streamsBuilder.stream(sensorDataTopic, Consumed.with(Serdes.String(), jsonSerde));
+
+        @Data
+        class RoomSensorData {
+            final String roomId;
+            final SensorData sensorData;
+        }
+        KStream<String, SensorData> roomSensorData =
+                valueStream.leftJoin(sensorRoomTable, (sd, r) -> new RoomSensorData(r, sd), Joined.valueSerde(jsonSerde))
+                        .map((k, rsd) -> new KeyValue<>(rsd.roomId, rsd.sensorData));
+
+        Materialized<String, Double, WindowStore<Bytes, byte[]>> averageByRoom1 =
+                Materialized.<String, Double, WindowStore<Bytes, byte[]>>as("averageByRoom")
+                        .withKeySerde(Serdes.String())
+                        .withValueSerde(Serdes.Double());
+        TimeWindowedKStream<String, SensorData> kGroupedStream = roomSensorData
+                .groupByKey(Grouped.with(Serdes.String(), jsonSerde))
+                .windowedBy(timeWindow);
+        kGroupedStream.aggregate(() -> Double.valueOf(0), new AverageAggregator(),
+                        averageByRoom1);
+
+        Topology topology = streamsBuilder.build();
+        Properties properties = new Properties();
+        properties.put(StreamsConfig.APPLICATION_ID_CONFIG, "evaluation-service");
+        properties.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        properties.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass().getName());
+        properties.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass().getName());
+        kafkaStreams = new KafkaStreams(topology, properties);
+
+        kafkaStreams.setStateListener(new RunningListener());
+        kafkaStreams.start();
+    }
+
+    private class RunningListener implements KafkaStreams.StateListener {
+        @Override
+        public void onChange(KafkaStreams.State newState, KafkaStreams.State oldState) {
+            if (newState == KafkaStreams.State.RUNNING
+                    && oldState != KafkaStreams.State.CREATED
+                    && averageByRoom == null) {
+                try {
+                    while (averageByRoom == null) {
+                        try {
+                            log.info("retrieving store");
+                            averageByRoom = kafkaStreams.store("averageByRoom", QueryableStoreTypes.windowStore());
+                            log.info("state store initialized");
+                        } catch (InvalidStateStoreException x) {
+                            Thread.sleep(1000);
+                        }
+                    }
+                } catch (Exception x) {
+                    log.error("failed to retrieve store", x);
                 }
-            });
+            }
         }
-        return data;
     }
 
-    private <T> Consumer<String, T> createAndAssignConsumer(Class<?> valueDeserializer, String topic) {
-        Map<String, Object> configs = new HashMap<>();
-        configs.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        configs.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        configs.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializer);
-        configs.put(ConsumerConfig.GROUP_ID_CONFIG, "evalution-service");
-        configs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        configs.put(JsonDeserializer.TRUSTED_PACKAGES, "com.kafkatutorial");
-        KafkaConsumer<String, T> consumer = new KafkaConsumer<>(configs);
-
-        List<TopicPartition> topicPartitions = getTopicPartitions(consumer, topic);
-        consumer.assign(topicPartitions);
-
-        // read starting at beginning of topic; otherwise, new calls will not receive
-        // data that was already previously read
-        consumer.seekToBeginning(topicPartitions);
-
-        return consumer;
+    @PreDestroy
+    void cleanup() {
+        if (kafkaStreams != null) {
+            kafkaStreams.close();
+        }
     }
+}
 
-    private List<TopicPartition> getTopicPartitions(Consumer<?, ?> sensorDataConsumer, String topic) {
-        return sensorDataConsumer.partitionsFor(topic).stream()
-                .mapToInt(PartitionInfo::partition)
-                .mapToObj(i -> new TopicPartition(topic, i))
-                .collect(Collectors.toList());
+class AverageAggregator implements Aggregator<String, SensorData, Double> {
+    private double sum;
+    private int count;
+
+    @Override
+    public Double apply(String s, SensorData sensorData, Double aDouble) {
+        sum += sensorData.getValue();
+        return (sum / (double) ++count);
     }
 }
