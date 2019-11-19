@@ -26,6 +26,8 @@ import java.util.*;
 @Service
 class EvaluationService {
 
+    private static final String AVERAGE_BY_ROOM = "averageByRoom";
+
     @Value("${kafka.topics.sensorData}")
     private String sensorDataTopic;
 
@@ -65,28 +67,36 @@ class EvaluationService {
         StreamsBuilder streamsBuilder = new StreamsBuilder();
 
         // sensorid to roomid
-        KTable<String, String> sensorRoomTable = streamsBuilder.table(sensorRoomAssignmentTopic);
+        GlobalKTable<String, String> sensorRoomTable = streamsBuilder.globalTable(sensorRoomAssignmentTopic);
 
         KStream<String, SensorData> valueStream =
                 streamsBuilder.stream(sensorDataTopic, Consumed.with(Serdes.String(), jsonSerde));
 
+        // intermediate type to store roomId->sensorData
         @Data
         class RoomSensorData {
             final String roomId;
             final SensorData sensorData;
         }
-        KStream<String, SensorData> roomSensorData =
-                valueStream.leftJoin(sensorRoomTable, (sd, r) -> new RoomSensorData(r, sd), Joined.valueSerde(jsonSerde))
-                        .map((k, rsd) -> new KeyValue<>(rsd.roomId, rsd.sensorData));
+        // map key/value pair from value stream to global table's key
+        KeyValueMapper<String, SensorData, String> mapper = (s, sd) -> sd.getSensorId();
+        // join a value from the stream with a key from the global table
+        ValueJoiner<SensorData, String, RoomSensorData> joiner = (sd, gv) -> new RoomSensorData(gv, sd);
+        // stream to roomId->sensor value
+        KStream<String, Double> roomSensorData =
+                valueStream.leftJoin(sensorRoomTable, mapper, joiner)
+                        .map((k, rsd) -> new KeyValue<>(rsd.roomId, rsd.sensorData.getValue()));
 
+        // declare the Serdes for the state store from the created stream
         Materialized<String, Double, WindowStore<Bytes, byte[]>> averageByRoom1 =
-                Materialized.<String, Double, WindowStore<Bytes, byte[]>>as("averageByRoom")
+                Materialized.<String, Double, WindowStore<Bytes, byte[]>>as(AVERAGE_BY_ROOM)
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Double());
-        TimeWindowedKStream<String, SensorData> kGroupedStream = roomSensorData
-                .groupByKey(Grouped.with(Serdes.String(), jsonSerde))
-                .windowedBy(timeWindow);
-        kGroupedStream.aggregate(() -> Double.valueOf(0), new AverageAggregator(),
+        // fill the store based on our time window
+        roomSensorData
+                .groupByKey(Grouped.with(Serdes.String(), Serdes.Double()))
+                .windowedBy(timeWindow)
+                .aggregate(() -> Double.valueOf(0), new AverageAggregator(),
                         averageByRoom1);
 
         Topology topology = streamsBuilder.build();
@@ -104,6 +114,7 @@ class EvaluationService {
     private class RunningListener implements KafkaStreams.StateListener {
         @Override
         public void onChange(KafkaStreams.State newState, KafkaStreams.State oldState) {
+            // the state is only available after the stream has started
             if (newState == KafkaStreams.State.RUNNING
                     && oldState != KafkaStreams.State.CREATED
                     && averageByRoom == null) {
@@ -111,7 +122,7 @@ class EvaluationService {
                     while (averageByRoom == null) {
                         try {
                             log.info("retrieving store");
-                            averageByRoom = kafkaStreams.store("averageByRoom", QueryableStoreTypes.windowStore());
+                            averageByRoom = kafkaStreams.store(AVERAGE_BY_ROOM, QueryableStoreTypes.windowStore());
                             log.info("state store initialized");
                         } catch (InvalidStateStoreException x) {
                             Thread.sleep(1000);
@@ -132,13 +143,13 @@ class EvaluationService {
     }
 }
 
-class AverageAggregator implements Aggregator<String, SensorData, Double> {
+class AverageAggregator implements Aggregator<String, Double, Double> {
     private double sum;
     private int count;
 
     @Override
-    public Double apply(String s, SensorData sensorData, Double aDouble) {
-        sum += sensorData.getValue();
+    public Double apply(String s, Double sensorData, Double aDouble) {
+        sum += sensorData;
         return (sum / (double) ++count);
     }
 }
